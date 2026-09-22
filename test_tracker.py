@@ -550,6 +550,43 @@ def test_edit_last_pause_minutes(tmp_path: Path) -> None:
     assert tracker.state.days["2026-09-21"].rounded_hours() == 10.25
 
 
+def test_same_day_second_start_adds_hours(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    tracker.stop(now=datetime(2026, 9, 22, 12, 0, 0))
+    morning = tracker.state.days["2026-09-22"]
+    assert morning.rounded_hours() == 4
+
+    message = tracker.start(now=datetime(2026, 9, 22, 13, 0, 0))
+    assert "fortgesetzt" in message
+    assert "4 Stunden" in message
+    assert tracker.state.current is not None
+    assert tracker.state.current.work_start == "2026-09-22T08:00:00"
+    assert tracker.state.current.work_end is None
+    assert tracker.state.days["2026-09-22"].rounded_hours() == 4
+
+    tracker.stop(now=datetime(2026, 9, 22, 16, 0, 0))
+    day = tracker.state.days["2026-09-22"]
+    assert day.work_start == "2026-09-22T08:00:00"
+    assert day.work_end == "2026-09-22T16:00:00"
+    assert day.total_pause_minutes() == 60
+    assert day.pauses[-1].start == "2026-09-22T12:00:00"
+    assert day.pauses[-1].end == "2026-09-22T13:00:00"
+    assert day.rounded_hours() == 7
+
+
+def test_abbruch_after_resume_keeps_morning(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    tracker.stop(now=datetime(2026, 9, 22, 12, 0, 0))
+    tracker.start(now=datetime(2026, 9, 22, 13, 0, 0))
+    tracker.abbruch()
+    day = tracker.state.days["2026-09-22"]
+    assert tracker.state.current is None
+    assert day.work_end == "2026-09-22T12:00:00"
+    assert day.rounded_hours() == 4
+
+
 def test_backup_existing_copies_file(tmp_path: Path) -> None:
     source = tmp_path / "Arbeitszeiten.pdf"
     source.write_bytes(b"old-pdf")

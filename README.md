@@ -98,6 +98,8 @@ A leftover open day from a **previous date** blocks `start`. Finish it with `sto
 
 If a pause is still open at `stop`, it is closed automatically.
 
+`start` after `stop` on the **same day** does not replace the morning. Hours add up. The gap (e.g. 12:00–13:00) is stored as a pause. `abbruch` after that resume drops only the afternoon; the morning stay saved.
+
 <p align="right"><a href="#readme-top">back to top</a></p>
 
 ---

@@ -90,6 +90,7 @@ COMMAND_ALIASES = {
 
 HELP_TEXT = """Befehle:
   start, s                 Arbeitstag starten (jetzt)
+                           am selben Tag nach stop: Vormittag bleibt, weiterzählen
   start 7, s 7 Uhr         Nachträglich um 7:00 starten
                            auch: start 7:00, s um 7 Uhr
   pause, p                 Pause starten
@@ -589,9 +590,11 @@ class WorkDay:
         return max(0.0, raw_minutes - self.total_pause_minutes())
 
     def rounded_hours(self) -> float:
-        if self.manual_hours is not None:
-            return round_to_quarter_hours(float(self.manual_hours) * 60.0)
-        return round_to_quarter_hours(self.work_minutes())
+        extra = float(self.manual_hours) if self.manual_hours is not None else 0.0
+        if self.work_start is None or self.work_end is None:
+            return round_to_quarter_hours(extra * 60.0)
+        session = self.work_minutes()
+        return round_to_quarter_hours(session + extra * 60.0)
 
 
 @dataclass
@@ -954,10 +957,33 @@ class Tracker:
                     f"Bitte zuerst mit 'f' beenden oder mit 'abbruch' verwerfen."
                 )
             return "Die Arbeit wurde heute bereits gestartet."
+        previous = self.state.days.get(today)
+        if previous is not None:
+            return self._resume_day(previous, started)
         self.state.current = WorkDay(date=today, work_start=now_iso(started))
         self.save()
         return (
             f"Arbeit gestartet am {format_date_de(today)} um {format_time(started)}."
+        )
+
+    def _resume_day(self, previous: WorkDay, started: datetime) -> str:
+        current = WorkDay.from_dict(previous.to_dict())
+        gap_end = current.work_end
+        if current.work_start is None:
+            current.work_start = now_iso(started)
+        elif gap_end is not None:
+            gap_start = datetime.fromisoformat(gap_end)
+            if pause_full_minutes(gap_start, started) > 0:
+                current.pauses.append(
+                    Pause(start=gap_end, end=now_iso(started))
+                )
+        current.work_end = None
+        self.state.current = current
+        self.save()
+        already = previous.rounded_hours()
+        return (
+            f"Arbeit fortgesetzt um {format_time(started)}. "
+            f"Bisher {format_hours(already)} Stunden bleiben erhalten."
         )
 
     def pause(self, now: datetime | None = None) -> str:
