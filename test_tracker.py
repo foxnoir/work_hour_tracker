@@ -20,6 +20,8 @@ from tracker import (
     REMINDER_TIMEOUT_SECONDS,
     format_hours,
     normalize_command,
+    parse_add_pause_entry,
+    parse_hours_query,
     parse_edit_entry,
     parse_manual_entry,
     parse_start_clock,
@@ -548,6 +550,155 @@ def test_edit_last_pause_minutes(tmp_path: Path) -> None:
     assert "45 Min." in message
     assert tracker.state.days["2026-09-21"].pauses[-1].minutes() == 45
     assert tracker.state.days["2026-09-21"].rounded_hours() == 10.25
+
+
+def test_parse_add_pause_entry() -> None:
+    today = parse_add_pause_entry("+ pause 10", TODAY)
+    assert today is not None
+    assert today.minutes == 10
+    assert today.day is None
+
+    plus_p = parse_add_pause_entry("+ p 13", TODAY)
+    assert plus_p is not None
+    assert plus_p.minutes == 13
+
+    titled = parse_add_pause_entry("+ Pause 20 min", TODAY)
+    assert titled is not None
+    assert titled.minutes == 20
+
+    dated = parse_add_pause_entry("21.09. + pause 10", TODAY)
+    assert dated is not None
+    assert dated.minutes == 10
+    assert dated.day == date(2026, 9, 21)
+
+    assert parse_add_pause_entry("+ start 10", TODAY) is None
+    with pytest.raises(ParseError, match="Minuten"):
+        parse_add_pause_entry("+ pause", TODAY)
+
+
+def test_add_pause_subtracts_from_finished_day(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    tracker.stop(now=datetime(2026, 9, 22, 16, 0, 0))
+    message = tracker.handle("+ pause 13", now=datetime(2026, 9, 22, 16, 5, 0))
+    day = tracker.state.days["2026-09-22"]
+    assert "13 Min. Extra-Pause" in message
+    assert "Pause gesamt 13 Min." in message
+    assert day.extra_pause_minutes == 13
+    assert day.total_pause_minutes() == 13
+    assert day.rounded_hours() == 7.75
+    assert (tmp_path / "out.pdf").exists()
+
+
+def test_add_pause_aliases_and_date(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.handle("21.9. 8 Uhr bis 16 Uhr", now=NOW)
+    missing = tracker.handle("+ p 10", now=NOW)
+    assert "Kein Eintrag für heute" in missing
+    message = tracker.handle("21.09. + Pause 20", now=NOW)
+    day = tracker.state.days["2026-09-21"]
+    assert "20 Min. Extra-Pause" in message
+    assert day.extra_pause_minutes == 20
+    assert day.rounded_hours() == 7.75
+
+
+def test_add_pause_accumulates_and_hours_only(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.handle("21.9. 8,5", now=NOW)
+    tracker.handle("21.09. + pause 10", now=NOW)
+    tracker.handle("21.09. + p 20", now=NOW)
+    day = tracker.state.days["2026-09-21"]
+    assert day.extra_pause_minutes == 30
+    assert day.total_pause_minutes() == 30
+    assert day.rounded_hours() == 8.0
+
+
+def test_add_pause_on_open_day_then_stop(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    message = tracker.handle("+ pause 15", now=datetime(2026, 9, 22, 15, 50, 0))
+    assert "PDF" not in message
+    assert tracker.state.current is not None
+    assert tracker.state.current.extra_pause_minutes == 15
+    tracker.stop(now=datetime(2026, 9, 22, 16, 0, 0))
+    day = tracker.state.days["2026-09-22"]
+    assert day.extra_pause_minutes == 15
+    assert day.rounded_hours() == 7.75
+
+
+def test_parse_hours_query() -> None:
+    today = parse_hours_query("stunden", TODAY)
+    assert today is not None
+    assert today.kind == "day"
+
+    assert parse_hours_query("stunden heute", TODAY).kind == "day"
+    month = parse_hours_query("stunden monat", TODAY)
+    assert month.kind == "month"
+    assert month.year == 2026
+    assert month.month == 9
+
+    named = parse_hours_query("monat september", TODAY)
+    assert named.year == 2026
+    assert named.month == 9
+
+    numbered = parse_hours_query("stunden 8", TODAY)
+    assert numbered.month == 8
+    assert numbered.year == 2026
+
+    dated = parse_hours_query("stunden 09.2025", TODAY)
+    assert dated.year == 2025
+    assert dated.month == 9
+
+    assert parse_hours_query("pause", TODAY) is None
+    with pytest.raises(ParseError, match="Monat"):
+        parse_hours_query("stunden xyz", TODAY)
+
+
+def test_stunden_today_running_and_finished(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    empty = tracker.handle("stunden", now=NOW)
+    assert "noch keine Stunden" in empty
+
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    running = tracker.handle("stunden", now=datetime(2026, 9, 22, 12, 0, 0))
+    assert "Heute bisher" in running
+    assert "4 Stunden" in running
+    status = tracker.status(now=datetime(2026, 9, 22, 12, 0, 0))
+    assert "Stunden bisher: 4" in status
+
+    tracker.pause(now=datetime(2026, 9, 22, 12, 0, 0))
+    paused = tracker.handle("std", now=datetime(2026, 9, 22, 12, 30, 0))
+    assert "4 Stunden" in paused
+
+    tracker.pausestop(now=datetime(2026, 9, 22, 12, 30, 0))
+    tracker.stop(now=datetime(2026, 9, 22, 16, 30, 0))
+    finished = tracker.handle("hours today", now=datetime(2026, 9, 22, 18, 0, 0))
+    assert "8 Stunden" in finished
+
+
+def test_stunden_month_current_and_named(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.handle("21.9. 8", now=NOW)
+    tracker.handle("1.8. 7,5", now=NOW)
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+
+    current = tracker.handle("monat", now=datetime(2026, 9, 22, 12, 0, 0))
+    assert "September 2026 bisher" in current
+    assert "12 Stunden" in current
+    assert "2 Tage" in current
+
+    august = tracker.handle("stunden august", now=NOW)
+    assert "August 2026:" in august
+    assert "bisher" not in august
+    assert "7,5 Stunden" in august
+    assert "1 Tag" in august
+
+    numbered = tracker.handle("monat 8", now=NOW)
+    assert "7,5 Stunden" in numbered
+
+    empty = tracker.handle("stunden 03.2026", now=NOW)
+    assert "März 2026" in empty
+    assert "noch keine Stunden" in empty
 
 
 def test_same_day_second_start_adds_hours(tmp_path: Path) -> None:

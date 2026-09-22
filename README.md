@@ -85,8 +85,13 @@ Type one of the inputs in **Command**. Uppercase and lowercase are the same.
 | `pause` / `p` | Start a pause | `pause` |
 | `pausestop` / `pause stop` / `pause-stop` / `ps` | End the open pause now. Only full minutes count. | `ps` |
 | `pausestop` + time / `ps` + time | End the open pause at that clock | `ps 13:15` |
+| `+ pause` / `+ Pause` / `+ p` + minutes | Add extra pause minutes at the end of the day. They are subtracted from the hours. Applies to the open day, or today's finished day. | `+ pause 10` |
+| date + `+ pause` + minutes | Same extra pause on a saved day | `21.09. + pause 13` |
 | `stop` / `stopp` / `finished` / `fertig` / `ende` / `f` | End the workday and refresh the PDF | `stop` |
-| `status` | Show the open day | `status` |
+| `status` | Show the open day, including hours so far | `status` |
+| `stunden` / `std` / `hours` | Hours so far today (running day counts up to now) | `stunden` |
+| `stunden monat` / `monat` / `month` | Hours so far this month | `monat` |
+| `stunden` + month / `monat` + month | Hours for that month. Year defaults to the current year. | `stunden september` |
 | `pdf` | Rebuild the PDF from every saved day | `pdf` |
 | `abbruch` / `cancel` | Discard the open day. Nothing is written to the PDF. | `abbruch` |
 | `help` / `h` / `?` | Show help | `help` |
@@ -99,6 +104,8 @@ A leftover open day from a **previous date** blocks `start`. Finish it with `sto
 If a pause is still open at `stop`, it is closed automatically.
 
 `start` after `stop` on the **same day** does not replace the morning. Hours add up. The gap (e.g. 12:00–13:00) is stored as a pause. `abbruch` after that resume drops only the afternoon; the morning stay saved.
+
+`+ pause 10`, `+ Pause 20`, or `+ p 13` adds minutes that are not a clocked pause. They count toward **Pause gesamt** and come off **Stunden**. Several extras on the same day add up. The PDF shows them as `manuell 13 Min.`
 
 <p align="right"><a href="#readme-top">back to top</a></p>
 
@@ -171,11 +178,12 @@ Checkout-at-17 reminders wait while you are on pause. Same five-minute dialog wi
 
 ## Hours
 
-- Work minutes = time from start to finish minus every pause
+- Work minutes = time from start to finish minus every pause, including extra minutes from `+ pause`
 - Pauses count full minutes only (`5:59` → 5 minutes)
 - Hours round to the nearest quarter (15 min. = 0.25; 30 = 0.5; 45 = 0.75)
 - Display uses a German comma: `8,5` / `8,25` / `8`
 - An end after midnight is shown as `01:30 (+1)` on the start date
+- `stunden` shows today so far. `monat` or `stunden september` / `monat 9` / `stunden 09.2026` shows a month total (current month: so far, including a running today)
 
 <p align="right"><a href="#readme-top">back to top</a></p>
 
@@ -188,11 +196,11 @@ File: `data/Arbeitszeiten.pdf`
 - One page per month that has data (without data: the current month)
 - Title, e.g. `Arbeitszeitenüberblick September 2026`
 - Table of every day in that month
-- Columns: Tag, Arbeit gestartet, Pause gestartet (several pauses stacked, e.g. `10:15–10:30`), Arbeit beendet, Pause gesamt, Stunden
+- Columns: Tag, Arbeit gestartet, Pause gestartet (several pauses stacked, e.g. `10:15–10:30`; extra minutes as `manuell 13 Min.`), Arbeit beendet, Pause gesamt, Stunden
 - Footer: `Monat Gesamtstunden: …`
 - Weekends slightly gray, dark header, portrait A4
 
-The PDF is rebuilt from **all** completed days on `stop` / `fertig`, on a manual entry, on `edit`, and when the 17:00 reminder clocks you out. `pdf` rebuilds it without ending the day.
+The PDF is rebuilt from **all** completed days on `stop` / `fertig`, on a manual entry, on `edit`, on `+ pause` for a finished day, and when the 17:00 reminder clocks you out. `pdf` rebuilds it without ending the day.
 
 Before a PDF is replaced, the tracker checks for an existing file. The previous PDF and `hours.json` are copied to `data/backups/` (timestamped, last 30 kept). If `hours.json` is missing, empty, or broken after a pull, the newest hours backup is loaded instead. An existing PDF is never overwritten with an empty calendar.
 
