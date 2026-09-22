@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="28" role="img" aria-label="Python">
+  <title>Python</title>
+  <defs>
+    <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1E415E"/>
+      <stop offset="50%" stop-color="#3776AB"/>
+      <stop offset="100%" stop-color="#97B8D3"/>
+    </linearGradient>
+  </defs>
+  <rect width="72" height="28" fill="url(#fill)"/>
+  <text x="36.0" y="18" text-anchor="middle" fill="#fff" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11" font-weight="700">Python</text>
+</svg>

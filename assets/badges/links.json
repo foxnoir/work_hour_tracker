@@ -1,0 +1,38 @@
+[
+  {
+    "image": "python",
+    "file": "python.svg",
+    "url": "python-url",
+    "href": "https://www.python.org/"
+  },
+  {
+    "image": "reportlab",
+    "file": "reportlab.svg",
+    "url": "reportlab-url",
+    "href": "https://www.reportlab.com/"
+  },
+  {
+    "image": "pytest",
+    "file": "pytest.svg",
+    "url": "pytest-url",
+    "href": "https://docs.pytest.org/"
+  },
+  {
+    "image": "linkedin-shield",
+    "file": "linkedin.svg",
+    "url": "linkedin-url",
+    "href": "https://www.linkedin.com/in/tanja-polz-5636401a5/"
+  },
+  {
+    "image": "instagram-shield",
+    "file": "instagram.svg",
+    "url": "instagram-url",
+    "href": "https://www.instagram.com/codeincouture/"
+  },
+  {
+    "image": "x-shield",
+    "file": "x.svg",
+    "url": "x-url",
+    "href": "https://twitter.com/_foxnoir_?lang=de"
+  }
+]
