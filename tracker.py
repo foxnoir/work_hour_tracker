@@ -6,6 +6,7 @@ from __future__ import annotations
 import calendar
 import json
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -31,6 +32,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 JSON_PATH = DATA_DIR / "hours.json"
 PDF_PATH = DATA_DIR / "Arbeitszeiten.pdf"
+BACKUP_KEEP = 30
 
 REMINDER_HOUR = 17
 REMINDER_TIMEOUT_SECONDS = 300
@@ -441,6 +443,68 @@ def atomic_write_text(path: Path, text: str) -> None:
     tmp_path.replace(path)
 
 
+def backup_dir_for(path: Path) -> Path:
+    return path.parent / "backups"
+
+
+def backup_existing(path: Path, keep: int = BACKUP_KEEP) -> Path | None:
+    if not path.exists() or path.stat().st_size == 0:
+        return None
+    folder = backup_dir_for(path)
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = folder / f"{path.stem}-{stamp}{path.suffix}"
+    index = 1
+    while dest.exists():
+        dest = folder / f"{path.stem}-{stamp}-{index}{path.suffix}"
+        index += 1
+    shutil.copy2(path, dest)
+    pattern = f"{path.stem}-*{path.suffix}"
+    old = sorted(folder.glob(pattern), key=lambda item: item.stat().st_mtime)
+    for leftover in old[:-keep]:
+        leftover.unlink(missing_ok=True)
+    return dest
+
+
+def latest_backup(path: Path) -> Path | None:
+    folder = backup_dir_for(path)
+    if not folder.exists():
+        return None
+    matches = sorted(
+        folder.glob(f"{path.stem}-*{path.suffix}"),
+        key=lambda item: item.stat().st_mtime,
+    )
+    return matches[-1] if matches else None
+
+
+def read_json_object(path: Path) -> dict | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def load_hours_payload(json_path: Path) -> tuple[dict, str]:
+    main = read_json_object(json_path) if json_path.exists() else None
+    backup_path = latest_backup(json_path)
+    backup = read_json_object(backup_path) if backup_path else None
+    main_days = (main or {}).get("days") or {}
+    backup_days = (backup or {}).get("days") or {}
+    if main and main_days:
+        return main, "file"
+    if backup and backup_days:
+        merged = dict(backup)
+        if main and main.get("current") and not merged.get("current"):
+            merged["current"] = main["current"]
+        return merged, "backup"
+    if main:
+        return main, "file"
+    return {"current": None, "days": {}}, "empty"
+
+
 @dataclass
 class Pause:
     start: str
@@ -724,6 +788,7 @@ class Tracker:
         self._pause_next_at: datetime | None = None
         self._reminder_stop = threading.Event()
         self._reminder_thread: threading.Thread | None = None
+        self._hours_source = "empty"
         self.state = State()
         self.load()
 
@@ -849,21 +914,28 @@ class Tracker:
         )
 
     def load(self) -> None:
-        if not self.json_path.exists():
-            self.state = State()
-            return
-        try:
-            payload = json.loads(self.json_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            self.state = State()
-            return
+        payload, source = load_hours_payload(self.json_path)
         self.state = State.from_dict(payload)
+        self._hours_source = source
 
     def save(self) -> None:
+        existing = read_json_object(self.json_path) if self.json_path.exists() else None
+        old_days = set((existing or {}).get("days") or {})
+        new_days = set(self.state.days)
+        if existing and (not new_days and old_days or old_days - new_days):
+            backup_existing(self.json_path)
         atomic_write_text(
             self.json_path,
             json.dumps(self.state.to_dict(), ensure_ascii=False, indent=2),
         )
+
+    def _write_pdf(self) -> Path:
+        backup_existing(self.json_path)
+        if self.pdf_path.exists():
+            backup_existing(self.pdf_path)
+            if not self.state.days:
+                return self.pdf_path
+        return generate_pdf(self.state.days, self.pdf_path)
 
     def start(self, now: datetime | None = None, at: time | None = None) -> str:
         now = now or datetime.now()
@@ -938,7 +1010,7 @@ class Tracker:
         self.state.days[current.date] = current
         self.state.current = None
         self.save()
-        generate_pdf(self.state.days, self.pdf_path)
+        self._write_pdf()
         return (
             f"Arbeitstag beendet um {format_time(now)}. "
             f"Stunden: {format_hours(hours)}. PDF aktualisiert."
@@ -971,8 +1043,10 @@ class Tracker:
         return "\n".join(lines)
 
     def pdf(self) -> str:
-        generate_pdf(self.state.days, self.pdf_path)
-        return f"PDF gespeichert unter {self.pdf_path}."
+        path = self._write_pdf()
+        if not self.state.days and path.exists():
+            return f"Keine neuen Tage — bestehende PDF behalten: {path}."
+        return f"PDF gespeichert unter {path}."
 
     def abbruch(self) -> str:
         if self.state.current is None:
@@ -1101,7 +1175,7 @@ class Tracker:
         else:
             self.state.days[day_key] = work_day
         self.save()
-        generate_pdf(self.state.days, self.pdf_path)
+        self._write_pdf()
         return f"{detail} PDF aktualisiert."
 
     def _apply_pause_edit(
@@ -1126,7 +1200,7 @@ class Tracker:
             self.state.current = work_day
         else:
             self.state.days[work_day.date] = work_day
-            generate_pdf(self.state.days, self.pdf_path)
+            self._write_pdf()
         self.save()
         minutes = pause.minutes()
         extra = " PDF aktualisiert." if not from_current or work_day.work_end else ""
@@ -1185,7 +1259,7 @@ class Tracker:
             )
         self.state.days[day_key] = work_day
         self.save()
-        generate_pdf(self.state.days, self.pdf_path)
+        self._write_pdf()
         if replaced:
             return f"Eintrag für {format_date_de(day_key)} ersetzt. {detail}"
         return detail
@@ -1217,6 +1291,8 @@ def generate_pdf(
 ) -> Path:
     today = today or date.today()
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    if pdf_path.exists() and not days:
+        return pdf_path
 
     months: set[tuple[int, int]] = set()
     for key in days:
@@ -1365,6 +1441,12 @@ def run_cli() -> None:
     tracker = Tracker()
     tracker.start_reminders()
     print("Arbeitszeit-Tracker – tippe 'help' für die Befehlsliste.")
+    if tracker._hours_source == "backup":
+        print(
+            f"Stunden aus Sicherung geladen ({len(tracker.state.days)} Tage)."
+        )
+    elif tracker.state.days:
+        print(f"{len(tracker.state.days)} gespeicherte Tage gefunden.")
     if tracker.state.current is not None:
         print(tracker.status())
     try:

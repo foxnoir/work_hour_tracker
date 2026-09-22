@@ -192,6 +192,8 @@ File: `data/Arbeitszeiten.pdf`
 
 The PDF is rebuilt from **all** completed days on `stop` / `fertig`, on a manual entry, on `edit`, and when the 17:00 reminder clocks you out. `pdf` rebuilds it without ending the day.
 
+Before a PDF is replaced, the tracker checks for an existing file. The previous PDF and `hours.json` are copied to `data/backups/` (timestamped, last 30 kept). If `hours.json` is missing, empty, or broken after a pull, the newest hours backup is loaded instead. An existing PDF is never overwritten with an empty calendar.
+
 <p align="right"><a href="#readme-top">back to top</a></p>
 
 ---

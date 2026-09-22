@@ -12,8 +12,11 @@ from tracker import (
     Tracker,
     WorkDay,
     PAUSE_REMINDER_MINUTES,
+    backup_existing,
     format_duration_de,
     format_end_time,
+    generate_pdf,
+    load_hours_payload,
     REMINDER_TIMEOUT_SECONDS,
     format_hours,
     normalize_command,
@@ -545,3 +548,56 @@ def test_edit_last_pause_minutes(tmp_path: Path) -> None:
     assert "45 Min." in message
     assert tracker.state.days["2026-09-21"].pauses[-1].minutes() == 45
     assert tracker.state.days["2026-09-21"].rounded_hours() == 10.25
+
+
+def test_backup_existing_copies_file(tmp_path: Path) -> None:
+    source = tmp_path / "Arbeitszeiten.pdf"
+    source.write_bytes(b"old-pdf")
+    dest = backup_existing(source)
+    assert dest is not None
+    assert dest.read_bytes() == b"old-pdf"
+    assert dest.parent.name == "backups"
+
+
+def test_generate_pdf_keeps_existing_when_days_empty(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "out.pdf"
+    pdf_path.write_bytes(b"keep-me")
+    result = generate_pdf({}, pdf_path)
+    assert result == pdf_path
+    assert pdf_path.read_bytes() == b"keep-me"
+
+
+def test_write_pdf_backs_up_old_file(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "out.pdf"
+    json_path = tmp_path / "hours.json"
+    pdf_path.write_bytes(b"previous")
+    tracker = Tracker(json_path=json_path, pdf_path=pdf_path)
+    tracker.handle("21.9. 8,5", now=NOW)
+    backups = list((tmp_path / "backups").glob("out-*.pdf"))
+    assert backups
+    assert any(item.read_bytes() == b"previous" for item in backups)
+    assert pdf_path.stat().st_size > 0
+    assert pdf_path.read_bytes() != b"previous"
+
+
+def test_load_uses_backup_when_hours_json_is_empty(tmp_path: Path) -> None:
+    json_path = tmp_path / "hours.json"
+    tracker = Tracker(json_path=json_path, pdf_path=tmp_path / "out.pdf")
+    tracker.handle("21.9. 8,5", now=NOW)
+    backup_existing(json_path)
+    json_path.write_text('{"current": null, "days": {}}', encoding="utf-8")
+    restored = Tracker(json_path=json_path, pdf_path=tmp_path / "out.pdf")
+    assert restored._hours_source == "backup"
+    assert "2026-09-21" in restored.state.days
+    assert restored.state.days["2026-09-21"].rounded_hours() == 8.5
+
+
+def test_load_hours_payload_prefers_file_with_days(tmp_path: Path) -> None:
+    json_path = tmp_path / "hours.json"
+    json_path.write_text(
+        '{"current": null, "days": {"2026-09-21": {"date": "2026-09-21", "work_start": null, "work_end": null, "pauses": [], "manual_hours": 8.5}}}',
+        encoding="utf-8",
+    )
+    payload, source = load_hours_payload(json_path)
+    assert source == "file"
+    assert "2026-09-21" in payload["days"]
