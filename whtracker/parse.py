@@ -5,8 +5,15 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, time, timedelta
 
-from .constants import COMMAND_ALIASES
-from .models import AddPauseEntry, EditEntry, HoursQuery, ManualEntry, ParseError
+from .constants import ABSENCE_ALIASES, COMMAND_ALIASES
+from .models import (
+    AbsenceEntry,
+    AddPauseEntry,
+    EditEntry,
+    HoursQuery,
+    ManualEntry,
+    ParseError,
+)
 
 _MONTH_ALIASES = {
     "januar": 1,
@@ -76,6 +83,17 @@ _ADD_PAUSE_RE = re.compile(
     r"^\+\s*(?:pause|p)\s+(\d+)\s*(?:min(?:uten)?)?$",
     re.IGNORECASE,
 )
+_ABSENCE_WORD = r"(urlaub|u|krank|k)"
+_AMOUNT = r"(\d+(?:[.,]\d+)?)"
+_ABSENCE_LUMP_RE = re.compile(
+    rf"^([+-])\s*{_ABSENCE_WORD}\b\s*(?:{_AMOUNT}\s*(?:tage?|t)?\b)?\s*(.*)$",
+    re.IGNORECASE,
+)
+_ABSENCE_DATED_RE = re.compile(
+    rf"^([+-])?\s*{_ABSENCE_WORD}\b\s*(?:{_AMOUNT}\s*(?:tage?|t)?)?\s*$",
+    re.IGNORECASE,
+)
+_RANGE_START_RE = re.compile(r"^\s*(?:bis|–|-)\s*", re.IGNORECASE)
 _EDIT_RE = re.compile(
     r"^(?:edit|editiere|korrigiere)\s+(.+)$",
     re.IGNORECASE,
@@ -269,6 +287,68 @@ def parse_add_pause_entry(raw: str, today: date) -> AddPauseEntry | None:
     if minutes <= 0:
         raise ParseError("Pause muss länger als 0 Minuten sein.")
     return AddPauseEntry(minutes=minutes, day=day)
+
+
+def _parse_absence_days(token: str) -> float:
+    days = float(token.replace(",", "."))
+    if days <= 0 or days * 2 != int(days * 2):
+        raise ParseError("Nur ganze oder halbe Tage, z. B. 1 oder 0,5.")
+    return days
+
+
+def parse_absence_entry(raw: str, today: date) -> AbsenceEntry | None:
+    """Urlaub/Krank: pauschal (+ u 2) oder datiert (24.09. k, 25.09. bis 28.09. u)."""
+    text = raw.strip()
+    parsed = _parse_date_prefix(text, today)
+    if parsed is None:
+        match = _ABSENCE_LUMP_RE.match(text)
+        if match is None:
+            return None
+        sign, word, amount, rest = match.groups()
+        kind = ABSENCE_ALIASES[word.lower()]
+        year, month = today.year, today.month
+        if rest.strip():
+            month_token = _parse_month_token(rest, today)
+            if month_token is None:
+                raise ParseError(
+                    "Monat konnte nicht gelesen werden, z. B. + urlaub 2 september."
+                )
+            year, month = month_token
+        if sign == "-":
+            days = _parse_absence_days(amount) if amount else None
+            return AbsenceEntry(kind=kind, days=days, year=year, month=month, remove=True)
+        if amount is None:
+            raise ParseError("Bitte Anzahl Tage angeben, z. B. + urlaub 2 oder + k 0,5.")
+        return AbsenceEntry(kind=kind, days=_parse_absence_days(amount), year=year, month=month)
+
+    start, rest = parsed
+    end = start
+    range_match = _RANGE_START_RE.match(rest)
+    if range_match:
+        parsed_end = _parse_date_prefix(rest[range_match.end() :], today)
+        if parsed_end is not None:
+            end, rest = parsed_end
+            if end < start:
+                end = date(end.year + 1, end.month, end.day)
+    match = _ABSENCE_DATED_RE.match(rest.strip())
+    if match is None:
+        return None
+    sign, word, amount = match.groups()
+    kind = ABSENCE_ALIASES[word.lower()]
+    if (end - start).days > 366:
+        raise ParseError("Zeitraum ist länger als ein Jahr.")
+    if sign == "-":
+        if amount:
+            raise ParseError("Zum Entfernen nur das Datum angeben, z. B. 24.09. - k.")
+        return AbsenceEntry(kind=kind, start=start, end=end, remove=True)
+    days = 1.0
+    if amount:
+        if end != start:
+            raise ParseError("Bei einem Zeitraum keine Tage angeben, z. B. 25.09. bis 28.09. u.")
+        days = _parse_absence_days(amount)
+        if days > 1:
+            raise ParseError("Für ein Datum höchstens 1 Tag, sonst Zeitraum angeben.")
+    return AbsenceEntry(kind=kind, days=days, start=start, end=end)
 
 
 def _parse_month_token(text: str, today: date) -> tuple[int, int] | None:

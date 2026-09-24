@@ -31,6 +31,19 @@ def format_hours(hours: float) -> str:
     return f"{quantized:.2f}".rstrip("0").replace(".", ",")
 
 
+def format_signed_hours(hours: float) -> str:
+    quantized = round(float(hours) * 4) / 4
+    if quantized > 0:
+        return f"+{format_hours(quantized)}"
+    if quantized < 0:
+        return f"-{format_hours(-quantized)}"
+    return "0"
+
+
+def format_vacation_days(days: float) -> str:
+    return "½" if days == 0.5 else format_hours(days)
+
+
 def format_time(value: datetime | str) -> str:
     if isinstance(value, str):
         value = datetime.fromisoformat(value)

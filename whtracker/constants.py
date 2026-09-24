@@ -1,5 +1,6 @@
 """Pfade, Texte und feste Tracker-Werte."""
 
+from datetime import date
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,6 +19,11 @@ REMINDER_TEXT = "Nicht vergessen, dich auszustempeln."
 PAUSE_REMINDER_MINUTES = 70
 PAUSE_REMINDER_REPEAT_MINUTES = 10
 PAUSE_REMINDER_TEXT = "Bist du noch in Pause?"
+
+EMPLOYMENT_START = date(2026, 9, 21)
+DAILY_TARGET_HOURS = 8.0
+ABSENCE_KINDS = {"urlaub": "Urlaub", "krank": "Krank"}
+ABSENCE_ALIASES = {"urlaub": "urlaub", "u": "urlaub", "krank": "krank", "k": "krank"}
 
 WEEKDAYS_DE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 MONTHS_DE = [
@@ -73,11 +79,21 @@ HELP_TEXT = """Befehle:
   ps 13:15                 Pause nachträglich um 13:15 beenden
   + pause 10, + p 13       Extra-Pause in Minuten abziehen
                            auch: + Pause 20, 21.09. + pause 10
+
+Urlaub (u, U, urlaub) und Krank (k, K, krank), Einheit immer Tage:
+  + urlaub 2, + k 2        pauschal vom Soll abziehen (aktueller Monat)
+  + u 2 september          pauschal für einen bestimmten Monat
+  - urlaub 1, - k          pauschal wieder abziehen / ganz löschen
+  24.09. k, 24.09. krank   genau dieser Tag (Zeile im PDF rot/grün)
+  24.09. u 0,5             halber Tag
+  25.09. bis 28.09. u      Zeitraum, nur Arbeitstage zählen (auch 25.9.-28.9. u)
+  24.09. - k               Eintrag für den Tag entfernen
   stop, stopp, f, fertig   Arbeitstag beenden und PDF aktualisieren
                            auch: finished, ende
   status                   Aktuellen Tag anzeigen
   stunden                  Stunden heute bisher
   stunden monat            Stunden im aktuellen Monat bisher
+                           (jeweils mit Sollstunden)
   stunden september        Stunden eines Monats
                            auch: monat, monat 9, stunden 09.2026
   pdf                      PDF aus gespeicherten Tagen neu erzeugen

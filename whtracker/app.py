@@ -9,6 +9,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 from .constants import (
+    ABSENCE_KINDS,
     HELP_TEXT,
     JSON_PATH,
     MONTHS_DE,
@@ -21,13 +22,16 @@ from .format import (
     format_date_de,
     format_end_time,
     format_hours,
+    format_signed_hours,
     format_time,
+    format_vacation_days,
     normalize_command,
     now_iso,
     pause_full_minutes,
     round_to_quarter_hours,
 )
 from .models import (
+    AbsenceEntry,
     AddPauseEntry,
     EditEntry,
     HoursQuery,
@@ -38,6 +42,7 @@ from .models import (
     WorkDay,
 )
 from .parse import (
+    parse_absence_entry,
     KNOWN_COMMANDS,
     PAUSESTOP_PREFIX_RE,
     START_PREFIX_RE,
@@ -64,6 +69,7 @@ from .storage import (
     load_hours_payload,
     read_json_object,
 )
+from .workdays import is_workday, month_key, non_workday_reason, target_hours, workdays_between
 
 class Tracker:
     def __init__(
@@ -226,9 +232,14 @@ class Tracker:
         backup_existing(self.json_path)
         if self.pdf_path.exists():
             backup_existing(self.pdf_path)
-            if not self.state.days:
+            if not self.state.days and not self.state.has_absences():
                 return self.pdf_path
-        return generate_pdf(self.state.days, self.pdf_path)
+        return generate_pdf(
+            self.state.days,
+            self.pdf_path,
+            absences=self.state.absences,
+            absence_totals=self.state.absence_totals,
+        )
 
     def start(self, now: datetime | None = None, at: time | None = None) -> str:
         now = now or datetime.now()
@@ -364,7 +375,7 @@ class Tracker:
 
     def pdf(self) -> str:
         path = self._write_pdf()
-        if not self.state.days and path.exists():
+        if not self.state.days and not self.state.has_absences() and path.exists():
             return f"Keine neuen Tage — bestehende PDF behalten: {path}."
         return f"PDF gespeichert unter {path}."
 
@@ -417,6 +428,9 @@ class Tracker:
             if clock is None:
                 return f"Unbekannter Befehl: {command}. Tippe 'help' für Hilfe."
             return self.pausestop(now=now, at=clock)
+        absence = self.try_absence(raw, now=now)
+        if absence is not None:
+            return absence
         added = self.try_add_pause(raw, now=now)
         if added is not None:
             return added
@@ -489,13 +503,103 @@ class Tracker:
         totals = [day.hours_at(now) for day in work_days]
         hours = sum(totals)
         counted = sum(1 for value in totals if value > 0)
+        target = self._target(year, month)
+        target_bit = (
+            f" Soll: {format_hours(target)} Stunden, "
+            f"Differenz: {format_signed_hours(hours - target)}."
+        )
         if counted == 0:
-            return f"{label}: noch keine Stunden."
+            return f"{label}: noch keine Stunden.{target_bit}"
         days_label = "Tag" if counted == 1 else "Tage"
         return (
             f"{label}: {format_hours(hours)} Stunden "
-            f"({counted} {days_label})."
+            f"({counted} {days_label}).{target_bit}"
         )
+
+    def try_absence(self, raw: str, now: datetime | None = None) -> str | None:
+        now = now or datetime.now()
+        try:
+            entry = parse_absence_entry(raw, now.date())
+        except ParseError as exc:
+            return str(exc)
+        if entry is None:
+            return None
+        if entry.start is None:
+            return self.apply_absence_total(entry)
+        return self.apply_absence_days(entry)
+
+    def apply_absence_total(self, entry: AbsenceEntry) -> str:
+        name = ABSENCE_KINDS[entry.kind]
+        key = month_key(entry.year, entry.month)
+        totals = self.state.absence_totals.setdefault(entry.kind, {})
+        month_label = f"{MONTHS_DE[entry.month]} {entry.year}"
+        before = totals.get(key, 0.0)
+        if entry.remove:
+            if not before:
+                return f"Kein pauschaler {name} für {month_label} eingetragen."
+            after = 0.0 if entry.days is None else max(0.0, before - entry.days)
+        else:
+            after = before + entry.days
+        if after:
+            totals[key] = after
+        else:
+            totals.pop(key, None)
+        self.save()
+        self._write_pdf()
+        return (
+            f"{name} pauschal {month_label}: {format_vacation_days(after)} Tag(e). "
+            f"{self._target_label(entry.year, entry.month)} PDF aktualisiert."
+        )
+
+    def apply_absence_days(self, entry: AbsenceEntry) -> str:
+        name = ABSENCE_KINDS[entry.kind]
+        booked = self.state.absences.setdefault(entry.kind, {})
+        single = entry.start == entry.end
+        span = format_date_de(entry.start.isoformat())
+        if not single:
+            span += f"–{format_date_de(entry.end.isoformat())}"
+
+        if entry.remove:
+            day = entry.start
+            removed: list[date] = []
+            while day <= entry.end:
+                if booked.pop(day.isoformat(), None) is not None:
+                    removed.append(day)
+                day += timedelta(days=1)
+            if not removed:
+                return f"Kein {name} am {span} eingetragen."
+            self.save()
+            self._write_pdf()
+            return f"{name} entfernt ({span}). {self._targets_for(removed)} PDF aktualisiert."
+
+        if single and not is_workday(entry.start):
+            return f"{span} ist {non_workday_reason(entry.start)} — kein {name} nötig."
+        days = workdays_between(entry.start, entry.end)
+        if not days:
+            return f"Im Zeitraum {span} liegt kein Arbeitstag."
+        for day in days:
+            key = day.isoformat()
+            for other, values in self.state.absences.items():
+                if other != entry.kind:
+                    values.pop(key, None)
+            booked[key] = entry.days
+        self.save()
+        self._write_pdf()
+        count = entry.days if single else float(len(days))
+        return (
+            f"{name} eingetragen ({span}): {format_vacation_days(count)} Arbeitstag(e). "
+            f"{self._targets_for(days)} PDF aktualisiert."
+        )
+
+    def _target(self, year: int, month: int) -> float:
+        return target_hours(year, month, self.state.absences, self.state.absence_totals)
+
+    def _target_label(self, year: int, month: int) -> str:
+        return f"Soll {MONTHS_DE[month]} {year}: {format_hours(self._target(year, month))} Stunden."
+
+    def _targets_for(self, days: list[date]) -> str:
+        months = sorted({(day.year, day.month) for day in days})
+        return " ".join(self._target_label(year, month) for year, month in months)
 
     def try_add_pause(self, raw: str, now: datetime | None = None) -> str | None:
         now = now or datetime.now()

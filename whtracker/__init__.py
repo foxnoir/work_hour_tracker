@@ -2,8 +2,11 @@
 
 from .app import Tracker, main, run_cli
 from .constants import (
+    ABSENCE_KINDS,
     BACKUP_KEEP,
     BASE_DIR,
+    DAILY_TARGET_HOURS,
+    EMPLOYMENT_START,
     COMMAND_ALIASES,
     DATA_DIR,
     HELP_TEXT,
@@ -26,13 +29,16 @@ from .format import (
     format_date_de,
     format_end_time,
     format_hours,
+    format_signed_hours,
     format_time,
+    format_vacation_days,
     normalize_command,
     now_iso,
     pause_full_minutes,
     round_to_quarter_hours,
 )
 from .models import (
+    AbsenceEntry,
     AddPauseEntry,
     EditEntry,
     HoursQuery,
@@ -49,6 +55,7 @@ from .parse import (
     parse_manual_entry,
     parse_pausestop_clock,
     parse_start_clock,
+    parse_absence_entry,
 )
 from .pdf import generate_pdf
 from .reminders import (
@@ -58,6 +65,16 @@ from .reminders import (
     next_reminder_clock,
     reminder_slot,
     reminder_window_open,
+)
+from .workdays import (
+    berlin_holidays,
+    easter_sunday,
+    holiday_name,
+    is_workday,
+    non_workday_reason,
+    target_breakdown,
+    workdays_between,
+    target_hours,
 )
 from .storage import (
     atomic_write_text,
@@ -69,11 +86,15 @@ from .storage import (
 )
 
 __all__ = [
+    "ABSENCE_KINDS",
+    "AbsenceEntry",
     "AddPauseEntry",
     "BACKUP_KEEP",
     "BASE_DIR",
     "COMMAND_ALIASES",
+    "DAILY_TARGET_HOURS",
     "DATA_DIR",
+    "EMPLOYMENT_START",
     "EditEntry",
     "HELP_TEXT",
     "HoursQuery",
@@ -88,8 +109,8 @@ __all__ = [
     "PING_COUNT",
     "PING_REPEAT_SECONDS",
     "PING_SOUND",
-    "Pause",
     "ParseError",
+    "Pause",
     "REMINDER_HOUR",
     "REMINDER_TEXT",
     "REMINDER_TIMEOUT_SECONDS",
@@ -102,18 +123,26 @@ __all__ = [
     "atomic_write_text",
     "backup_dir_for",
     "backup_existing",
+    "berlin_holidays",
+    "easter_sunday",
     "format_date_de",
     "format_duration_de",
     "format_end_time",
     "format_hours",
+    "format_signed_hours",
     "format_time",
+    "format_vacation_days",
     "generate_pdf",
+    "holiday_name",
+    "is_workday",
     "latest_backup",
     "load_hours_payload",
     "main",
     "next_reminder_clock",
+    "non_workday_reason",
     "normalize_command",
     "now_iso",
+    "parse_absence_entry",
     "parse_add_pause_entry",
     "parse_edit_entry",
     "parse_hours_query",
@@ -126,4 +155,7 @@ __all__ = [
     "reminder_window_open",
     "round_to_quarter_hours",
     "run_cli",
+    "target_breakdown",
+    "target_hours",
+    "workdays_between",
 ]

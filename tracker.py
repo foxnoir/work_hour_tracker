@@ -12,8 +12,10 @@ from whtracker import (
     ReminderUI,
     State,
     Tracker,
+    AbsenceEntry,
     WorkDay,
     backup_existing,
+    berlin_holidays,
     format_duration_de,
     format_end_time,
     format_hours,
@@ -26,10 +28,13 @@ from whtracker import (
     parse_hours_query,
     parse_manual_entry,
     parse_start_clock,
+    parse_absence_entry,
     pause_full_minutes,
     reminder_window_open,
     round_to_quarter_hours,
     run_cli,
+    target_breakdown,
+    target_hours,
 )
 
 __all__ = [
@@ -43,8 +48,10 @@ __all__ = [
     "ReminderUI",
     "State",
     "Tracker",
+    "AbsenceEntry",
     "WorkDay",
     "backup_existing",
+    "berlin_holidays",
     "format_duration_de",
     "format_end_time",
     "format_hours",
@@ -57,10 +64,13 @@ __all__ = [
     "parse_hours_query",
     "parse_manual_entry",
     "parse_start_clock",
+    "parse_absence_entry",
     "pause_full_minutes",
     "reminder_window_open",
     "round_to_quarter_hours",
     "run_cli",
+    "target_breakdown",
+    "target_hours",
 ]
 
 if __name__ == "__main__":

@@ -25,9 +25,13 @@ from tracker import (
     parse_edit_entry,
     parse_manual_entry,
     parse_start_clock,
+    parse_absence_entry,
     pause_full_minutes,
     reminder_window_open,
     round_to_quarter_hours,
+    berlin_holidays,
+    target_breakdown,
+    target_hours,
 )
 
 TODAY = date(2026, 9, 22)
@@ -789,3 +793,132 @@ def test_load_hours_payload_prefers_file_with_days(tmp_path: Path) -> None:
     payload, source = load_hours_payload(json_path)
     assert source == "file"
     assert "2026-09-21" in payload["days"]
+
+
+def test_berlin_holidays_2026() -> None:
+    holidays = berlin_holidays(2026)
+    assert holidays[date(2026, 4, 3)] == "Karfreitag"
+    assert holidays[date(2026, 5, 25)] == "Pfingstmontag"
+    assert holidays[date(2026, 3, 8)] == "Frauentag"
+    assert holidays[date(2026, 12, 31)] == "Silvester"
+
+
+def test_target_hours_start_in_september() -> None:
+    # 21.–30.09.2026: 8 Arbeitstage à 8 Std.
+    assert target_hours(2026, 9) == 64.0
+    assert target_hours(2026, 8) == 0.0
+    # Oktober 2026: 22 Werktage, 03.10. ist Samstag
+    assert target_hours(2026, 10) == 22 * 8.0
+    # Dezember 2026: 23 Werktage minus 24., 25., 31. (26. ist Samstag)
+    assert target_hours(2026, 12) == 20 * 8.0
+
+
+def test_target_breakdown_dated_and_lump() -> None:
+    absences = {"urlaub": {"2026-09-25": 1.0, "2026-09-28": 1.0}, "krank": {"2026-09-24": 0.5}}
+    totals = {"urlaub": {"2026-09": 2.0}}
+    breakdown = target_breakdown(2026, 9, absences, totals)
+    assert breakdown.base_hours == 64.0
+    rows = [(item.name, item.days, item.dates) for item in breakdown.deductions]
+    assert rows == [
+        ("Feiertage", 0.0, []),
+        ("Urlaub", 4.0, [date(2026, 9, 25), date(2026, 9, 28)]),
+        ("Krank", 0.5, [date(2026, 9, 24)]),
+    ]
+    assert breakdown.target_days == 3.5
+    assert breakdown.total == 64.0 - 16 - 16 - 4
+
+
+def test_target_breakdown_lists_weekday_holidays() -> None:
+    breakdown = target_breakdown(2026, 12)
+    assert breakdown.weekdays == 23
+    holidays = breakdown.deductions[0]
+    assert holidays.name == "Feiertage"
+    assert holidays.dates == [date(2026, 12, 24), date(2026, 12, 25), date(2026, 12, 31)]
+    assert breakdown.total == 20 * 8.0
+
+
+def test_parse_absence_entry_lump() -> None:
+    lump = parse_absence_entry("+ urlaub 2", TODAY)
+    assert lump is not None and lump.kind == "urlaub" and lump.days == 2.0
+    assert (lump.year, lump.month) == (2026, 9) and lump.start is None
+    sick = parse_absence_entry("+ K 0,5", TODAY)
+    assert sick is not None and sick.kind == "krank" and sick.days == 0.5
+    other_month = parse_absence_entry("+ krank 1 oktober", TODAY)
+    assert other_month is not None and other_month.month == 10
+    cleared = parse_absence_entry("- u", TODAY)
+    assert cleared is not None and cleared.remove and cleared.days is None
+    assert parse_absence_entry("+ pause 10", TODAY) is None
+    with pytest.raises(ParseError, match="Anzahl"):
+        parse_absence_entry("+ urlaub", TODAY)
+    with pytest.raises(ParseError, match="halbe"):
+        parse_absence_entry("+ u 0,3", TODAY)
+
+
+def test_parse_absence_entry_dated() -> None:
+    single = parse_absence_entry("24.09. K", TODAY)
+    assert single is not None and single.kind == "krank"
+    assert single.start == single.end == date(2026, 9, 24) and single.days == 1.0
+    half = parse_absence_entry("24.9. urlaub 0,5", TODAY)
+    assert half is not None and half.days == 0.5
+    spanned = parse_absence_entry("25.09. bis 28.09. Urlaub", TODAY)
+    assert spanned is not None
+    assert (spanned.start, spanned.end) == (date(2026, 9, 25), date(2026, 9, 28))
+    dashed = parse_absence_entry("25.9.-28.9. u", TODAY)
+    assert dashed is not None and dashed.end == date(2026, 9, 28)
+    removed = parse_absence_entry("24.09. - k", TODAY)
+    assert removed is not None and removed.remove
+    assert parse_absence_entry("21.9. 9-18", TODAY) is None
+    assert parse_absence_entry("21.9. 8,5", TODAY) is None
+
+
+def test_vacation_range_skips_weekend(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    message = tracker.handle("25.09. bis 28.09. urlaub", now=NOW)
+    assert tracker.state.absences["urlaub"] == {"2026-09-25": 1.0, "2026-09-28": 1.0}
+    assert "2 Arbeitstag(e)" in message
+    assert "Soll September 2026: 48 Stunden." in message
+    assert (tmp_path / "out.pdf").exists()
+
+    reloaded = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    reloaded.load()
+    assert reloaded.state.absences == tracker.state.absences
+
+    tracker.handle("28.09. - u", now=NOW)
+    assert tracker.state.absences["urlaub"] == {"2026-09-25": 1.0}
+
+
+def test_sick_day_replaces_vacation_on_same_day(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.handle("24.09. u", now=NOW)
+    tracker.handle("24.09. krank", now=NOW)
+    assert tracker.state.absences["urlaub"] == {}
+    assert tracker.state.absences["krank"] == {"2026-09-24": 1.0}
+
+
+def test_lump_absence_accumulates_and_clears(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.handle("+ urlaub 1", now=NOW)
+    message = tracker.handle("+ U 1", now=NOW)
+    assert tracker.state.absence_totals["urlaub"] == {"2026-09": 2.0}
+    assert "Soll September 2026: 48 Stunden." in message
+    tracker.handle("+ k 2", now=NOW)
+    assert tracker._target(2026, 9) == 32.0
+    tracker.handle("- k 1", now=NOW)
+    assert tracker.state.absence_totals["krank"] == {"2026-09": 1.0}
+    tracker.handle("- urlaub", now=NOW)
+    assert tracker.state.absence_totals["urlaub"] == {}
+
+
+def test_absence_on_non_workday_is_rejected(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    assert "Heiligabend" in tracker.handle("24.12. urlaub", now=NOW)
+    assert "Wochenende" in tracker.handle("26.09. k", now=NOW)
+    assert "vor Arbeitsbeginn" in tracker.handle("18.09. k", now=NOW)
+    assert not tracker.state.has_absences()
+
+
+def test_month_hours_show_target(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.handle("21.9. 7", now=NOW)
+    message = tracker.handle("stunden september", now=NOW)
+    assert "Soll: 64 Stunden, Differenz: -57." in message

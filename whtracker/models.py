@@ -35,6 +35,17 @@ class AddPauseEntry:
 
 
 @dataclass
+class AbsenceEntry:
+    kind: str
+    days: float | None = None
+    start: date | None = None
+    end: date | None = None
+    year: int | None = None
+    month: int | None = None
+    remove: bool = False
+
+
+@dataclass
 class HoursQuery:
     kind: str
     year: int | None = None
@@ -161,12 +172,24 @@ class WorkDay:
 class State:
     current: WorkDay | None = None
     days: dict[str, WorkDay] = field(default_factory=dict)
+    absences: dict[str, dict[str, float]] = field(default_factory=dict)
+    absence_totals: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    def has_absences(self) -> bool:
+        return any(self.absences.values()) or any(self.absence_totals.values())
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "current": None if self.current is None else self.current.to_dict(),
             "days": {key: day.to_dict() for key, day in self.days.items()},
         }
+        absences = {kind: dict(sorted(v.items())) for kind, v in self.absences.items() if v}
+        totals = {kind: dict(sorted(v.items())) for kind, v in self.absence_totals.items() if v}
+        if absences:
+            data["absences"] = absences
+        if totals:
+            data["absence_totals"] = totals
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> State:
@@ -175,4 +198,13 @@ class State:
         return cls(
             current=None if current_data is None else WorkDay.from_dict(current_data),
             days={key: WorkDay.from_dict(value) for key, value in days_data.items()},
+            absences=_float_maps(data.get("absences")),
+            absence_totals=_float_maps(data.get("absence_totals")),
         )
+
+
+def _float_maps(raw: dict | None) -> dict[str, dict[str, float]]:
+    return {
+        kind: {key: float(value) for key, value in (values or {}).items()}
+        for kind, values in (raw or {}).items()
+    }

@@ -87,10 +87,18 @@ Type one of the inputs in **Command**. Uppercase and lowercase are the same.
 | `pausestop` + time / `ps` + time | End the open pause at that clock | `ps 13:15` |
 | `+ pause` / `+ Pause` / `+ p` + minutes | Add extra pause minutes at the end of the day. They are subtracted from the hours. Applies to the open day, or today's finished day. | `+ pause 10` |
 | date + `+ pause` + minutes | Same extra pause on a saved day | `21.09. + pause 13` |
+| `+ urlaub` / `+ u` / `+ U` + days | Vacation without a date: subtracted from this month's Soll (whole or half days, `0,5` or `0.5`). Several entries add up. | `+ urlaub 2` |
+| `+ krank` / `+ k` / `+ K` + days | Same for sick days | `+ k 2` |
+| … + month | Lump sum for another month | `+ u 2 september` |
+| `- urlaub` / `- k` (+ days) | Take lump days back; without a number the month's lump sum is cleared | `- u 1` |
+| date + `urlaub` / `u` / `krank` / `k` | That exact day. The PDF row turns green (Urlaub) or red (Krank). | `24.09. K` |
+| date + `u 0,5` | Half a day | `29.09. u 0,5` |
+| date `bis` date + `u` / `k` | Range. Only workdays count; weekends and holidays are skipped. | `25.09. bis 28.09. urlaub` |
+| date + `- u` / `- k` | Remove the entry for that day (or range) | `24.09. - k` |
 | `stop` / `stopp` / `finished` / `fertig` / `ende` / `f` | End the workday and refresh the PDF | `stop` |
 | `status` | Show the open day, including hours so far | `status` |
 | `stunden` / `std` / `hours` | Hours so far today (running day counts up to now) | `stunden` |
-| `stunden monat` / `monat` / `month` | Hours so far this month | `monat` |
+| `stunden monat` / `monat` / `month` | Hours so far this month, with **Soll** and the difference | `monat` |
 | `stunden` + month / `monat` + month | Hours for that month. Year defaults to the current year. | `stunden september` |
 | `pdf` | Rebuild the PDF from every saved day | `pdf` |
 | `abbruch` / `cancel` | Discard the open day. Nothing is written to the PDF. | `abbruch` |
@@ -196,9 +204,18 @@ File: `data/Arbeitszeiten.pdf`
 - One page per month that has data (without data: the current month)
 - Title, e.g. `Arbeitszeitenüberblick September 2026`
 - Table of every day in that month
-- Columns: Tag, Arbeit gestartet, Pause gestartet (several pauses stacked, e.g. `10:15–10:30`; extra minutes as `manuell 13 Min.`), Arbeit beendet, Pause gesamt, Stunden
-- Footer: `Monat Gesamtstunden: …`
-- Weekends slightly gray, dark header, portrait A4
+- Columns: Tag, Arbeit gestartet, Pause(n) (several pauses stacked, e.g. `10:15–10:30`; extra minutes as `manuell 13 Min.`), Arbeit beendet, Pause gesamt, Stunden
+- Row colors: **green** vacation, **red** sick, **yellow** before the start date, **blue** holidays (also on a weekend), gray weekends (legend under the table). Holidays, vacation, and sick days are also labeled in the Stunden column.
+- Below the table, the Soll calculation as a subtraction in days and hours: Arbeitstage (Mo–Fr), minus Feiertage, Urlaub, and Krank (always listed, `0` if none; dates and lump sums next to them), `= Sollstunden`, then actual hours and the difference
+- Empty cells of an entered day show `–` (e.g. `21.9. 7`), so the day does not look forgotten
+- Every page has a header with the month, so continuation pages stay recognizable
+- Dark header, portrait A4
+
+### Sollstunden
+
+- Daily target `DAILY_TARGET_HOURS = 8` (40 hours per 5-day week) and start date `EMPLOYMENT_START = 21.09.2026` live in [`whtracker/constants.py`](whtracker/constants.py). Days before the start date count for nothing (September 2026: 8 workdays = 64 hours).
+- Berlin public holidays that fall on a weekday are subtracted: Neujahr, Frauentag, Karfreitag, Ostermontag, 1. Mai, Christi Himmelfahrt, Pfingstmontag, Tag der Deutschen Einheit, 1. and 2. Weihnachtstag. **Heiligabend and Silvester** count as days off as well.
+- Every vacation or sick day subtracts 8 hours (half a day subtracts 4). A day is either vacation or sick; booking one replaces the other.
 
 The PDF is rebuilt from **all** completed days on `stop` / `fertig`, on a manual entry, on `edit`, on `+ pause` for a finished day, and when the 17:00 reminder clocks you out. `pdf` rebuilds it without ending the day.
 
