@@ -21,6 +21,7 @@ from tracker import (
     format_hours,
     normalize_command,
     parse_add_pause_entry,
+    parse_clock_adjust_entry,
     parse_hours_query,
     parse_edit_entry,
     parse_manual_entry,
@@ -628,6 +629,88 @@ def test_add_pause_on_open_day_then_stop(tmp_path: Path) -> None:
     day = tracker.state.days["2026-09-22"]
     assert day.extra_pause_minutes == 15
     assert day.rounded_hours() == 7.75
+
+
+def test_parse_clock_adjust_entry() -> None:
+    start = parse_clock_adjust_entry("+ St. 8:00", TODAY)
+    assert start is not None
+    assert start.field == "start"
+    assert start.clock == time(8, 0)
+    assert start.day is None
+
+    short = parse_clock_adjust_entry("+ s 7 Uhr", TODAY)
+    assert short is not None
+    assert short.clock == time(7, 0)
+
+    end = parse_clock_adjust_entry("+ F 17:30", TODAY)
+    assert end is not None
+    assert end.field == "end"
+    assert end.clock == time(17, 30)
+
+    dated = parse_clock_adjust_entry("21.09. + f 16", TODAY)
+    assert dated is not None
+    assert dated.field == "end"
+    assert dated.clock == time(16, 0)
+    assert dated.day == date(2026, 9, 21)
+
+    assert parse_clock_adjust_entry("+ pause 10", TODAY) is None
+    with pytest.raises(ParseError, match="Uhrzeit"):
+        parse_clock_adjust_entry("+ St.", TODAY)
+    with pytest.raises(ParseError, match="Uhrzeit"):
+        parse_clock_adjust_entry("+ F", TODAY)
+
+
+def test_plus_start_changes_start_clock(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    tracker.stop(now=datetime(2026, 9, 22, 16, 0, 0))
+    message = tracker.handle("+ St. 7:00", now=datetime(2026, 9, 22, 16, 10, 0))
+    day = tracker.state.days["2026-09-22"]
+    assert "Start auf 07:00" in message
+    assert day.work_start == "2026-09-22T07:00:00"
+    assert day.work_end == "2026-09-22T16:00:00"
+    assert day.rounded_hours() == 9
+
+
+def test_plus_f_changes_end_clock(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.handle("21.9. 8 Uhr bis 16 Uhr", now=NOW)
+    message = tracker.handle("21.09. + F 17:30", now=NOW)
+    day = tracker.state.days["2026-09-21"]
+    assert "Ende auf 17:30" in message
+    assert day.work_end == "2026-09-21T17:30:00"
+    assert day.rounded_hours() == 9.5
+
+
+def test_plus_f_finishes_open_day(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    message = tracker.handle("+ f 15:00", now=datetime(2026, 9, 22, 16, 0, 0))
+    assert tracker.state.current is None
+    day = tracker.state.days["2026-09-22"]
+    assert "Ende auf 15:00" in message
+    assert day.work_end == "2026-09-22T15:00:00"
+    assert day.rounded_hours() == 7
+
+
+def test_plus_start_on_open_day_keeps_running(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    message = tracker.handle("+ St. 7:30", now=datetime(2026, 9, 22, 12, 0, 0))
+    assert "PDF" not in message
+    assert tracker.state.current is not None
+    assert tracker.state.current.work_start == "2026-09-22T07:30:00"
+    assert tracker.state.current.work_end is None
+
+
+def test_plus_clock_rejects_future_and_start_after_end(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.start(now=datetime(2026, 9, 22, 8, 0, 0))
+    future = tracker.handle("+ St. 13:00", now=datetime(2026, 9, 22, 12, 0, 0))
+    assert "Zukunft" in future
+    tracker.handle("21.9. 8 Uhr bis 16 Uhr", now=NOW)
+    late = tracker.handle("21.09. + St. 17:00", now=NOW)
+    assert "vor dem Ende" in late
 
 
 def test_parse_hours_query() -> None:

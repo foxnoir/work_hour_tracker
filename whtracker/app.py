@@ -33,6 +33,7 @@ from .format import (
 from .models import (
     AbsenceEntry,
     AddPauseEntry,
+    ClockAdjustEntry,
     EditEntry,
     HoursQuery,
     ManualEntry,
@@ -48,6 +49,7 @@ from .parse import (
     START_PREFIX_RE,
     parse_add_pause_entry,
     parse_clock,
+    parse_clock_adjust_entry,
     parse_edit_entry,
     parse_hours_query,
     parse_manual_entry,
@@ -434,6 +436,9 @@ class Tracker:
         added = self.try_add_pause(raw, now=now)
         if added is not None:
             return added
+        adjusted = self.try_clock_adjust(raw, now=now)
+        if adjusted is not None:
+            return adjusted
         queried = self.try_hours_query(raw, now=now)
         if queried is not None:
             return queried
@@ -601,6 +606,29 @@ class Tracker:
         months = sorted({(day.year, day.month) for day in days})
         return " ".join(self._target_label(year, month) for year, month in months)
 
+    def _resolve_work_day(
+        self,
+        day: date | None,
+        now: datetime,
+        missing_today: str,
+    ) -> tuple[WorkDay, bool, str] | str:
+        if day is not None:
+            day_key = day.isoformat()
+            from_current = (
+                self.state.current is not None and self.state.current.date == day_key
+            )
+            work_day = self.state.current if from_current else self.state.days.get(day_key)
+            if work_day is None:
+                return f"Kein Eintrag für {format_date_de(day_key)}."
+            return work_day, from_current, day_key
+        if self.state.current is not None:
+            return self.state.current, True, self.state.current.date
+        day_key = now.date().isoformat()
+        work_day = self.state.days.get(day_key)
+        if work_day is None:
+            return missing_today
+        return work_day, False, day_key
+
     def try_add_pause(self, raw: str, now: datetime | None = None) -> str | None:
         now = now or datetime.now()
         try:
@@ -612,27 +640,15 @@ class Tracker:
         return self.apply_add_pause(entry, now=now)
 
     def apply_add_pause(self, entry: AddPauseEntry, now: datetime) -> str:
-        if entry.day is not None:
-            day_key = entry.day.isoformat()
-            from_current = (
-                self.state.current is not None and self.state.current.date == day_key
-            )
-            work_day = self.state.current if from_current else self.state.days.get(day_key)
-            if work_day is None:
-                return f"Kein Eintrag für {format_date_de(day_key)}."
-        elif self.state.current is not None:
-            work_day = self.state.current
-            from_current = True
-            day_key = work_day.date
-        else:
-            day_key = now.date().isoformat()
-            work_day = self.state.days.get(day_key)
-            from_current = False
-            if work_day is None:
-                return (
-                    "Kein Eintrag für heute. "
-                    "Bitte Datum angeben, z. B. 21.09. + pause 10."
-                )
+        resolved = self._resolve_work_day(
+            entry.day,
+            now,
+            "Kein Eintrag für heute. "
+            "Bitte Datum angeben, z. B. 21.09. + pause 10.",
+        )
+        if isinstance(resolved, str):
+            return resolved
+        work_day, from_current, day_key = resolved
 
         work_day.extra_pause_minutes += entry.minutes
         if from_current:
@@ -652,6 +668,96 @@ class Tracker:
             f"({format_date_de(day_key)}). "
             f"Pause gesamt {work_day.total_pause_minutes()} Min.{hours_bit}{pdf_bit}"
         )
+
+    def try_clock_adjust(self, raw: str, now: datetime | None = None) -> str | None:
+        now = now or datetime.now()
+        try:
+            entry = parse_clock_adjust_entry(raw, now.date())
+        except ParseError as exc:
+            return str(exc)
+        if entry is None:
+            return None
+        return self.apply_clock_adjust(entry, now=now)
+
+    def apply_clock_adjust(self, entry: ClockAdjustEntry, now: datetime) -> str:
+        example = "+ St. 8:00" if entry.field == "start" else "+ F 17:30"
+        resolved = self._resolve_work_day(
+            entry.day,
+            now,
+            "Kein Eintrag für heute. "
+            f"Bitte Datum angeben, z. B. 21.09. {example}.",
+        )
+        if isinstance(resolved, str):
+            return resolved
+        work_day, from_current, day_key = resolved
+        if work_day.work_start is None:
+            return (
+                f"{format_date_de(day_key)} hat keine Startzeit. "
+                f"Bitte zuerst starten oder einen Zeitraum eintragen."
+            )
+
+        day = date.fromisoformat(work_day.date)
+        start = datetime.fromisoformat(work_day.work_start)
+        if entry.field == "start":
+            new_start = datetime.combine(day, entry.clock)
+            if new_start > now and (
+                from_current or work_day.date == now.date().isoformat()
+            ):
+                return (
+                    f"{format_time(new_start)} liegt in der Zukunft "
+                    f"(jetzt {format_time(now)})."
+                )
+            if work_day.work_end is not None:
+                end = datetime.fromisoformat(work_day.work_end)
+                if new_start >= end:
+                    return (
+                        f"Start {format_time(new_start)} muss vor dem Ende "
+                        f"{format_end_time(start, end)} liegen."
+                    )
+            work_day.work_start = now_iso(new_start)
+            work_day.manual_hours = None
+            if from_current and work_day.work_end is None:
+                self.state.current = work_day
+                self.save()
+                return (
+                    f"Start auf {format_time(new_start)} gesetzt "
+                    f"({format_date_de(day_key)})."
+                )
+            start = new_start
+            hours = work_day.rounded_hours()
+            detail = (
+                f"{format_date_de(day_key)}: Start auf {format_time(start)} "
+                f"gesetzt ({format_hours(hours)} Stunden)."
+            )
+        else:
+            end = datetime.combine(start.date(), entry.clock)
+            if end <= start:
+                end += timedelta(days=1)
+            if end > now and (
+                from_current or work_day.date == now.date().isoformat()
+            ):
+                return (
+                    f"{format_time(end)} liegt in der Zukunft "
+                    f"(jetzt {format_time(now)})."
+                )
+            self._stop_open_pause(work_day, end)
+            work_day.work_end = now_iso(end)
+            work_day.manual_hours = None
+            hours = work_day.rounded_hours()
+            detail = (
+                f"{format_date_de(day_key)}: Ende auf "
+                f"{format_end_time(start, end)} gesetzt "
+                f"({format_hours(hours)} Stunden)."
+            )
+
+        if from_current:
+            self.state.days[day_key] = work_day
+            self.state.current = None
+        else:
+            self.state.days[day_key] = work_day
+        self.save()
+        self._write_pdf()
+        return f"{detail} PDF aktualisiert."
 
     def try_edit(self, raw: str, now: datetime | None = None) -> str | None:
         now = now or datetime.now()

@@ -87,6 +87,9 @@ Type one of the inputs in **Command**. Uppercase and lowercase are the same.
 | `pausestop` + time / `ps` + time | End the open pause at that clock | `ps 13:15` |
 | `+ pause` / `+ Pause` / `+ p` + minutes | Add extra pause minutes at the end of the day. They are subtracted from the hours. Applies to the open day, or today's finished day. | `+ pause 10` |
 | date + `+ pause` + minutes | Same extra pause on a saved day | `21.09. + pause 13` |
+| `+ St.` / `+ st` / `+ start` / `+ s` + time | Change **Arbeit gestartet**. Hours are recalculated if the day already has an end. | `+ St. 8:00` |
+| `+ F` / `+ f` / `+ fertig` + time | Change **Arbeit beendet**, or finish an open day at that clock. Hours are recalculated. | `+ F 17:30` |
+| date + `+ St.` / `+ F` + time | Same clock change on a saved day | `21.09. + F 16:00` |
 | `+ urlaub` / `+ u` / `+ U` + days | Vacation without a date: subtracted from this month's Soll (whole or half days, `0,5` or `0.5`). Several entries add up. | `+ urlaub 2` |
 | `+ krank` / `+ k` / `+ K` + days | Same for sick days | `+ k 2` |
 | … + month | Lump sum for another month | `+ u 2 september` |
@@ -114,6 +117,8 @@ If a pause is still open at `stop`, it is closed automatically.
 `start` after `stop` on the **same day** does not replace the morning. Hours add up. The gap (e.g. 12:00–13:00) is stored as a pause. `abbruch` after that resume drops only the afternoon; the morning stay saved.
 
 `+ pause 10`, `+ Pause 20`, or `+ p 13` adds minutes that are not a clocked pause. They count toward **Pause gesamt** and come off **Stunden**. Several extras on the same day add up. The PDF shows them as `manuell 13 Min.`
+
+`+ St. 8:00` moves the start. `+ F 17:30` moves the end (or clocks out an open day at that time). Pauses stay. A clock later than now is rejected for today.
 
 <p align="right"><a href="#readme-top">back to top</a></p>
 

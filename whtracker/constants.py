@@ -79,6 +79,10 @@ HELP_TEXT = """Befehle:
   ps 13:15                 Pause nachträglich um 13:15 beenden
   + pause 10, + p 13       Extra-Pause in Minuten abziehen
                            auch: + Pause 20, 21.09. + pause 10
+  + St. 8:00, + s 8        Startuhrzeit ändern
+                           auch: + start 8 Uhr, 21.09. + St. 7:30
+  + F 17:30, + f 17        Enduhrzeit ändern
+                           auch: + fertig 17 Uhr, 21.09. + F 16:00
 
 Urlaub (u, U, urlaub) und Krank (k, K, krank), Einheit immer Tage:
   + urlaub 2, + k 2        pauschal vom Soll abziehen (aktueller Monat)

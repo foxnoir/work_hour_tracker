@@ -9,6 +9,7 @@ from .constants import ABSENCE_ALIASES, COMMAND_ALIASES
 from .models import (
     AbsenceEntry,
     AddPauseEntry,
+    ClockAdjustEntry,
     EditEntry,
     HoursQuery,
     ManualEntry,
@@ -81,6 +82,14 @@ _START_PREFIX_RE = START_PREFIX_RE
 _PAUSESTOP_PREFIX_RE = PAUSESTOP_PREFIX_RE
 _ADD_PAUSE_RE = re.compile(
     r"^\+\s*(?:pause|p)\s+(\d+)\s*(?:min(?:uten)?)?$",
+    re.IGNORECASE,
+)
+_ADD_START_CLOCK_RE = re.compile(
+    r"^\+\s*(?:start|st\.?|s)\s+(?:um\s+)?(.+)$",
+    re.IGNORECASE,
+)
+_ADD_END_CLOCK_RE = re.compile(
+    r"^\+\s*(?:fertig|finished|ende|f)\s+(?:um\s+)?(.+)$",
     re.IGNORECASE,
 )
 _ABSENCE_WORD = r"(urlaub|u|krank|k)"
@@ -287,6 +296,39 @@ def parse_add_pause_entry(raw: str, today: date) -> AddPauseEntry | None:
     if minutes <= 0:
         raise ParseError("Pause muss länger als 0 Minuten sein.")
     return AddPauseEntry(minutes=minutes, day=day)
+
+
+def parse_clock_adjust_entry(raw: str, today: date) -> ClockAdjustEntry | None:
+    text = raw.strip()
+    parsed = _parse_date_prefix(text, today)
+    rest = text
+    day: date | None = None
+    if parsed is not None:
+        day, rest = parsed
+        rest = rest.strip()
+        if not rest.startswith("+"):
+            return None
+    elif not text.startswith("+"):
+        return None
+    start_match = _ADD_START_CLOCK_RE.match(rest)
+    if start_match:
+        return ClockAdjustEntry(
+            field="start",
+            clock=parse_clock(start_match.group(1)),
+            day=day,
+        )
+    end_match = _ADD_END_CLOCK_RE.match(rest)
+    if end_match:
+        return ClockAdjustEntry(
+            field="end",
+            clock=parse_clock(end_match.group(1)),
+            day=day,
+        )
+    if re.match(r"^\+\s*(?:start|st\.?|s)\b", rest, re.IGNORECASE):
+        raise ParseError("Bitte Uhrzeit angeben, z. B. + St. 8:00.")
+    if re.match(r"^\+\s*(?:fertig|finished|ende|f)\b", rest, re.IGNORECASE):
+        raise ParseError("Bitte Uhrzeit angeben, z. B. + F 17:30.")
+    return None
 
 
 def _parse_absence_days(token: str) -> float:

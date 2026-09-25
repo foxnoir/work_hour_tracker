@@ -40,6 +40,7 @@ from .format import (
 from .models import (
     AbsenceEntry,
     AddPauseEntry,
+    ClockAdjustEntry,
     EditEntry,
     HoursQuery,
     ManualEntry,
@@ -50,6 +51,7 @@ from .models import (
 )
 from .parse import (
     parse_add_pause_entry,
+    parse_clock_adjust_entry,
     parse_edit_entry,
     parse_hours_query,
     parse_manual_entry,
@@ -89,6 +91,7 @@ __all__ = [
     "ABSENCE_KINDS",
     "AbsenceEntry",
     "AddPauseEntry",
+    "ClockAdjustEntry",
     "BACKUP_KEEP",
     "BASE_DIR",
     "COMMAND_ALIASES",
@@ -144,6 +147,7 @@ __all__ = [
     "now_iso",
     "parse_absence_entry",
     "parse_add_pause_entry",
+    "parse_clock_adjust_entry",
     "parse_edit_entry",
     "parse_hours_query",
     "parse_manual_entry",

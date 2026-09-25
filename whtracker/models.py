@@ -35,6 +35,13 @@ class AddPauseEntry:
 
 
 @dataclass
+class ClockAdjustEntry:
+    field: str
+    clock: time
+    day: date | None = None
+
+
+@dataclass
 class AbsenceEntry:
     kind: str
     days: float | None = None
