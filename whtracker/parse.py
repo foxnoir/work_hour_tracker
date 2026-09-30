@@ -77,6 +77,7 @@ PAUSESTOP_PREFIX_RE = re.compile(
     r"^(?:ps|pausestop|pause\s+stop)\s+(?:um\s+)?(.+)$",
     re.IGNORECASE,
 )
+BACKUP_COMMAND_RE = re.compile(r"^backup(?:s)?(?:\s+(.*))?$", re.IGNORECASE)
 _KNOWN_COMMANDS = KNOWN_COMMANDS
 _START_PREFIX_RE = START_PREFIX_RE
 _PAUSESTOP_PREFIX_RE = PAUSESTOP_PREFIX_RE
@@ -457,3 +458,18 @@ def parse_manual_entry(raw: str, today: date) -> ManualEntry | None:
     if hours <= 0 or hours > 36:
         raise ParseError("Stunden müssen größer als 0 und höchstens 36 sein.")
     return ManualEntry(day=day, hours=hours)
+
+
+def parse_backup_choice(raw: str) -> str | None:
+    text = " ".join(raw.strip().lower().split())
+    if text in {"a", "1", "älter", "aelter", "alter"}:
+        return "a"
+    if text in {"b", "2", "neuer"}:
+        return "b"
+    match = BACKUP_COMMAND_RE.match(text)
+    if match is None:
+        return None
+    rest = (match.group(1) or "").strip()
+    if not rest:
+        return None
+    return parse_backup_choice(rest)

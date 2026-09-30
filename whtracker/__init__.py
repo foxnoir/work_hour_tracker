@@ -51,6 +51,7 @@ from .models import (
 )
 from .parse import (
     parse_add_pause_entry,
+    parse_backup_choice,
     parse_clock_adjust_entry,
     parse_edit_entry,
     parse_hours_query,
@@ -147,6 +148,7 @@ __all__ = [
     "now_iso",
     "parse_absence_entry",
     "parse_add_pause_entry",
+    "parse_backup_choice",
     "parse_clock_adjust_entry",
     "parse_edit_entry",
     "parse_hours_query",

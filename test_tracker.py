@@ -21,6 +21,7 @@ from tracker import (
     format_hours,
     normalize_command,
     parse_add_pause_entry,
+    parse_backup_choice,
     parse_clock_adjust_entry,
     parse_hours_query,
     parse_edit_entry,
@@ -826,12 +827,13 @@ def test_abbruch_after_resume_keeps_morning(tmp_path: Path) -> None:
 
 
 def test_backup_existing_copies_file(tmp_path: Path) -> None:
-    source = tmp_path / "Arbeitszeiten.pdf"
-    source.write_bytes(b"old-pdf")
+    source = tmp_path / "hours.json"
+    source.write_text('{"current": null, "days": {}}', encoding="utf-8")
     dest = backup_existing(source)
     assert dest is not None
-    assert dest.read_bytes() == b"old-pdf"
+    assert dest.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
     assert dest.parent.name == "backups"
+    assert dest.suffix == ".json"
 
 
 def test_generate_pdf_keeps_existing_when_days_empty(tmp_path: Path) -> None:
@@ -842,17 +844,52 @@ def test_generate_pdf_keeps_existing_when_days_empty(tmp_path: Path) -> None:
     assert pdf_path.read_bytes() == b"keep-me"
 
 
-def test_write_pdf_backs_up_old_file(tmp_path: Path) -> None:
+def test_save_keeps_two_json_backups_and_drops_pdfs(tmp_path: Path) -> None:
     pdf_path = tmp_path / "out.pdf"
     json_path = tmp_path / "hours.json"
     pdf_path.write_bytes(b"previous")
+    stale = tmp_path / "backups" / "old.pdf"
+    stale.parent.mkdir()
+    stale.write_bytes(b"pdf-backup")
     tracker = Tracker(json_path=json_path, pdf_path=pdf_path)
-    tracker.handle("21.9. 8,5", now=NOW)
-    backups = list((tmp_path / "backups").glob("out-*.pdf"))
-    assert backups
-    assert any(item.read_bytes() == b"previous" for item in backups)
-    assert pdf_path.stat().st_size > 0
+    tracker.handle("21.9. 8", now=NOW)
+    tracker.handle("22.9. 7", now=NOW)
+    tracker.handle("23.9. 6", now=NOW)
+    tracker.handle("24.9. 5", now=NOW)
+    json_backups = list((tmp_path / "backups").glob("hours-*.json"))
+    assert len(json_backups) == 2
+    assert list((tmp_path / "backups").glob("*.pdf")) == []
     assert pdf_path.read_bytes() != b"previous"
+
+
+def test_backup_command_restore_a_and_b(tmp_path: Path) -> None:
+    json_path = tmp_path / "hours.json"
+    pdf_path = tmp_path / "out.pdf"
+    tracker = Tracker(json_path=json_path, pdf_path=pdf_path)
+    tracker.handle("21.9. 8", now=NOW)
+    tracker.handle("22.9. 7", now=NOW)
+    tracker.handle("23.9. 6", now=NOW)
+    listed = tracker.handle("backup", now=NOW)
+    assert "A (älter):" in listed
+    assert "B (neuer):" in listed
+    assert parse_backup_choice("backup a") == "a"
+    assert parse_backup_choice("B") == "b"
+
+    older = tracker.handle("a", now=NOW)
+    assert "Backup A (älter) geladen" in older
+    assert "PDF aktualisiert" in older
+    assert "2026-09-21" in tracker.state.days
+    assert "2026-09-22" not in tracker.state.days
+    assert "2026-09-23" not in tracker.state.days
+
+    tracker.handle("21.9. 8", now=NOW)
+    tracker.handle("22.9. 7", now=NOW)
+    tracker.handle("23.9. 6", now=NOW)
+    newer = tracker.handle("backup b", now=NOW)
+    assert "Backup B (neuer) geladen" in newer
+    assert "2026-09-23" not in tracker.state.days
+    assert "2026-09-21" in tracker.state.days
+    assert "2026-09-22" in tracker.state.days
 
 
 def test_load_uses_backup_when_hours_json_is_empty(tmp_path: Path) -> None:

@@ -104,6 +104,8 @@ Type one of the inputs in **Command**. Uppercase and lowercase are the same.
 | `stunden monat` / `monat` / `month` | Hours so far this month, with **Soll** and the difference | `monat` |
 | `stunden` + month / `monat` + month | Hours for that month. Year defaults to the current year. | `stunden september` |
 | `pdf` | Rebuild the PDF from every saved day | `pdf` |
+| `backup` | Show the two JSON snapshots (A older, B newer). Then type `A` or `B`. | `backup` |
+| `backup a` / `backup b` | Load that JSON snapshot and rebuild the PDF from it | `backup b` |
 | `abbruch` / `cancel` | Discard the open day. Nothing is written to the PDF. | `abbruch` |
 | `help` / `h` / `?` | Show help | `help` |
 | `quit` / `q` / `exit` | Leave the program. An open day stays in the JSON file. Reminders stop. | `quit` |
@@ -222,9 +224,9 @@ File: `data/Arbeitszeiten.pdf`
 - Berlin public holidays that fall on a weekday are subtracted: Neujahr, Frauentag, Karfreitag, Ostermontag, 1. Mai, Christi Himmelfahrt, Pfingstmontag, Tag der Deutschen Einheit, 1. and 2. Weihnachtstag. **Heiligabend and Silvester** count as days off as well.
 - Every vacation or sick day subtracts 8 hours (half a day subtracts 4). A day is either vacation or sick; booking one replaces the other.
 
-The PDF is rebuilt from **all** completed days on `stop` / `fertig`, on a manual entry, on `edit`, on `+ pause` for a finished day, and when the 17:00 reminder clocks you out. `pdf` rebuilds it without ending the day.
+The PDF is rebuilt from **all** completed days on `stop` / `fertig`, on a manual entry, on `edit`, on `+ pause` for a finished day, when you restore a JSON backup, and when the 17:00 reminder clocks you out. `pdf` rebuilds it without ending the day.
 
-Before a PDF is replaced, the tracker checks for an existing file. The previous PDF and `hours.json` are copied to `data/backups/` (timestamped, last 30 kept). If `hours.json` is missing, empty, or broken after a pull, the newest hours backup is loaded instead. An existing PDF is never overwritten with an empty calendar.
+No PDF copies are kept. `hours.json` is snapshotted on every real change; `data/backups/` holds **two** JSON files only (older = A, newer = B). `backup` lists them; `backup a` / `backup b` loads that snapshot into the live file and writes the PDF. If `hours.json` is missing, empty, or broken after a pull, the newest JSON backup is loaded instead. An existing PDF is never overwritten with an empty calendar.
 
 <p align="right"><a href="#readme-top">back to top</a></p>
 

@@ -44,10 +44,12 @@ from .models import (
 )
 from .parse import (
     parse_absence_entry,
+    BACKUP_COMMAND_RE,
     KNOWN_COMMANDS,
     PAUSESTOP_PREFIX_RE,
     START_PREFIX_RE,
     parse_add_pause_entry,
+    parse_backup_choice,
     parse_clock,
     parse_clock_adjust_entry,
     parse_edit_entry,
@@ -68,6 +70,8 @@ from .reminders import (
 from .storage import (
     atomic_write_text,
     backup_existing,
+    backup_stamp,
+    list_hours_backups,
     load_hours_payload,
     read_json_object,
 )
@@ -90,6 +94,7 @@ class Tracker:
         self._reminder_stop = threading.Event()
         self._reminder_thread: threading.Thread | None = None
         self._hours_source = "empty"
+        self._awaiting_backup_choice = False
         self.state = State()
         self.load()
 
@@ -220,22 +225,16 @@ class Tracker:
         self._hours_source = source
 
     def save(self) -> None:
-        existing = read_json_object(self.json_path) if self.json_path.exists() else None
-        old_days = set((existing or {}).get("days") or {})
-        new_days = set(self.state.days)
-        if existing and (not new_days and old_days or old_days - new_days):
-            backup_existing(self.json_path)
-        atomic_write_text(
-            self.json_path,
-            json.dumps(self.state.to_dict(), ensure_ascii=False, indent=2),
-        )
+        text = json.dumps(self.state.to_dict(), ensure_ascii=False, indent=2)
+        if self.json_path.exists() and self.json_path.stat().st_size > 0:
+            previous = self.json_path.read_text(encoding="utf-8")
+            if previous != text:
+                backup_existing(self.json_path)
+        atomic_write_text(self.json_path, text)
 
     def _write_pdf(self) -> Path:
-        backup_existing(self.json_path)
-        if self.pdf_path.exists():
-            backup_existing(self.pdf_path)
-            if not self.state.days and not self.state.has_absences():
-                return self.pdf_path
+        if self.pdf_path.exists() and not self.state.days and not self.state.has_absences():
+            return self.pdf_path
         return generate_pdf(
             self.state.days,
             self.pdf_path,
@@ -381,6 +380,46 @@ class Tracker:
             return f"Keine neuen Tage — bestehende PDF behalten: {path}."
         return f"PDF gespeichert unter {path}."
 
+    def backup(self, choice: str = "") -> str:
+        picked = parse_backup_choice(choice) if choice.strip() else None
+        if picked is not None:
+            return self.restore_backup(picked)
+        slots = list_hours_backups(self.json_path)
+        if not slots:
+            return "Keine JSON-Backups vorhanden."
+        self._awaiting_backup_choice = True
+        lines = ["JSON-Backups (immer nur zwei):"]
+        older = slots[0] if len(slots) == 2 else None
+        newer = slots[-1]
+        if older is None:
+            lines.append("A (älter): —")
+        else:
+            lines.append(f"A (älter): {backup_stamp(older)}")
+        lines.append(f"B (neuer): {backup_stamp(newer)}")
+        lines.append("Tippe A oder B (oder 'backup a' / 'backup b').")
+        return "\n".join(lines)
+
+    def restore_backup(self, slot: str) -> str:
+        slots = list_hours_backups(self.json_path)
+        if slot == "a":
+            if len(slots) < 2:
+                return "Kein älteres Backup (A)."
+            path = slots[0]
+            label = "A (älter)"
+        else:
+            if not slots:
+                return "Kein JSON-Backup vorhanden."
+            path = slots[-1]
+            label = "B (neuer)"
+        payload = read_json_object(path)
+        if payload is None:
+            return f"Backup {label} konnte nicht gelesen werden."
+        stamp = backup_stamp(path)
+        self.state = State.from_dict(payload)
+        self.save()
+        self._write_pdf()
+        return f"Backup {label} geladen ({stamp}). PDF aktualisiert."
+
     def abbruch(self) -> str:
         if self.state.current is None:
             return "Kein offener Arbeitstag zum Verwerfen."
@@ -400,6 +439,7 @@ class Tracker:
             return timed[command](now=now)
         handlers = {
             "pdf": self.pdf,
+            "backup": self.backup,
             "abbruch": self.abbruch,
             "help": lambda: HELP_TEXT,
             "quit": lambda: "Beendet. Offener Tag bleibt gespeichert.",
@@ -411,9 +451,18 @@ class Tracker:
 
     def handle(self, raw: str, now: datetime | None = None) -> str:
         now = now or datetime.now()
+        if self._awaiting_backup_choice:
+            self._awaiting_backup_choice = False
+            picked = parse_backup_choice(raw)
+            if picked is not None:
+                return self.restore_backup(picked)
         command = normalize_command(raw)
         if command in KNOWN_COMMANDS:
             return self.dispatch(command, now=now)
+        backup_match = BACKUP_COMMAND_RE.match(raw.strip())
+        if backup_match is not None:
+            rest = (backup_match.group(1) or "").strip()
+            return self.backup(rest)
         if START_PREFIX_RE.match(raw.strip()):
             try:
                 clock = parse_start_clock(raw)

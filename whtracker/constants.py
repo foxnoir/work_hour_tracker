@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 JSON_PATH = DATA_DIR / "hours.json"
 PDF_PATH = DATA_DIR / "Arbeitszeiten.pdf"
-BACKUP_KEEP = 30
+BACKUP_KEEP = 2
 
 REMINDER_HOUR = 17
 REMINDER_TIMEOUT_SECONDS = 300
@@ -58,6 +58,8 @@ COMMAND_ALIASES = {
     "ende": "stop",
     "status": "status",
     "pdf": "pdf",
+    "backup": "backup",
+    "backups": "backup",
     "abbruch": "abbruch",
     "cancel": "abbruch",
     "help": "help",
@@ -101,6 +103,8 @@ Urlaub (u, U, urlaub) und Krank (k, K, krank), Einheit immer Tage:
   stunden september        Stunden eines Monats
                            auch: monat, monat 9, stunden 09.2026
   pdf                      PDF aus gespeicherten Tagen neu erzeugen
+  backup                   JSON-Backups anzeigen (A älter, B neuer)
+  backup a, backup b       gewähltes Backup laden und PDF erzeugen
   abbruch, cancel          Offenen Tag verwerfen (nicht ins PDF)
   help, h, ?               Diese Hilfe
   quit, q, exit            Beenden (offener Tag bleibt gespeichert)

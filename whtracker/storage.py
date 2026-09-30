@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .constants import BACKUP_KEEP
 
+
 def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(path.name + ".tmp")
@@ -20,34 +21,54 @@ def backup_dir_for(path: Path) -> Path:
     return path.parent / "backups"
 
 
+def _hours_backup_files(path: Path) -> list[Path]:
+    folder = backup_dir_for(path)
+    if not folder.exists():
+        return []
+    return sorted(
+        folder.glob(f"{path.stem}-*{path.suffix}"),
+        key=lambda item: (item.stat().st_mtime_ns, item.name),
+    )
+
+
+def prune_backup_folder(path: Path, keep: int = BACKUP_KEEP) -> None:
+    folder = backup_dir_for(path)
+    if not folder.exists():
+        return
+    for leftover_pdf in folder.glob("*.pdf"):
+        leftover_pdf.unlink(missing_ok=True)
+    old = _hours_backup_files(path)
+    for leftover in old[:-keep]:
+        leftover.unlink(missing_ok=True)
+
+
 def backup_existing(path: Path, keep: int = BACKUP_KEEP) -> Path | None:
     if not path.exists() or path.stat().st_size == 0:
         return None
     folder = backup_dir_for(path)
     folder.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     dest = folder / f"{path.stem}-{stamp}{path.suffix}"
     index = 1
     while dest.exists():
         dest = folder / f"{path.stem}-{stamp}-{index}{path.suffix}"
         index += 1
     shutil.copy2(path, dest)
-    pattern = f"{path.stem}-*{path.suffix}"
-    old = sorted(folder.glob(pattern), key=lambda item: item.stat().st_mtime)
-    for leftover in old[:-keep]:
-        leftover.unlink(missing_ok=True)
-    return dest
+    prune_backup_folder(path, keep=keep)
+    return dest if dest.exists() else None
+
+
+def list_hours_backups(path: Path, keep: int = BACKUP_KEEP) -> list[Path]:
+    return _hours_backup_files(path)[-keep:]
 
 
 def latest_backup(path: Path) -> Path | None:
-    folder = backup_dir_for(path)
-    if not folder.exists():
-        return None
-    matches = sorted(
-        folder.glob(f"{path.stem}-*{path.suffix}"),
-        key=lambda item: item.stat().st_mtime,
-    )
+    matches = list_hours_backups(path)
     return matches[-1] if matches else None
+
+
+def backup_stamp(path: Path) -> str:
+    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%d.%m.%Y %H:%M")
 
 
 def read_json_object(path: Path) -> dict | None:
