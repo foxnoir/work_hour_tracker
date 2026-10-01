@@ -144,11 +144,12 @@ Same date, other spellings: `21.9.`, `21.09.`, `21. Sept`, `21. September`, `21.
 
 ## Edit a day
 
-Correct a saved or leftover day. Start stays. The PDF updates immediately. `edit` / `editiere` / `korrigiere` are the same word.
+Correct a saved or leftover day. The PDF updates immediately. `edit` / `editiere` / `korrigiere` are the same word.
 
 | Command | Meaning | Example |
 | --- | --- | --- |
 | date + `edit` + hours | Set **Stunden**. Move **Arbeit beendet** so the math fits. Pauses stay. | `21.09. edit 8` |
+| date + `edit start` + clock | Set **Arbeit gestartet**. Recalculate **Stunden**. End and pauses stay. | `21.09. edit start 8:00` |
 | date + `edit` + clock | Set **Arbeit beendet**. Recalculate **Stunden**. Pauses stay. | `21.09. edit 17:30` |
 | date + `edit pause` + minutes | Change the last pause to that length. | `21.09. edit pause 45` |
 | date + `edit pause` + clock | End the last pause at that clock. | `21.09. edit pause 13:15` |

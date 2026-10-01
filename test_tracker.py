@@ -428,7 +428,19 @@ def test_parse_edit_hours_and_end_clock() -> None:
     assert named is not None
     assert named.end == time(17, 30)
 
+    start = parse_edit_entry("21.09. edit start 8:00", TODAY)
+    assert start is not None
+    assert start.start == time(8, 0)
+    assert start.end is None
+    assert start.hours is None
+
+    start_short = parse_edit_entry("21. September edit s 7 Uhr", TODAY)
+    assert start_short is not None
+    assert start_short.start == time(7, 0)
+
     assert parse_edit_entry("21.9. 8,5", TODAY) is None
+    with pytest.raises(ParseError, match="Startzeit"):
+        parse_edit_entry("21.09. edit start", TODAY)
 
 
 def test_edit_hours_keeps_start_and_moves_end(tmp_path: Path) -> None:
@@ -440,6 +452,17 @@ def test_edit_hours_keeps_start_and_moves_end(tmp_path: Path) -> None:
     assert day.work_start == "2026-09-21T07:00:00"
     assert day.work_end == "2026-09-21T15:00:00"
     assert day.rounded_hours() == 8
+
+
+def test_edit_start_time_recalculates_hours(tmp_path: Path) -> None:
+    tracker = Tracker(json_path=tmp_path / "hours.json", pdf_path=tmp_path / "out.pdf")
+    tracker.handle("21.9. 8 Uhr bis 16 Uhr", now=NOW)
+    message = tracker.handle("21.09. edit start 7:00", now=NOW)
+    assert "Start auf 07:00" in message
+    day = tracker.state.days["2026-09-21"]
+    assert day.work_start == "2026-09-21T07:00:00"
+    assert day.work_end == "2026-09-21T16:00:00"
+    assert day.rounded_hours() == 9
 
 
 def test_edit_end_time_recalculates_hours(tmp_path: Path) -> None:

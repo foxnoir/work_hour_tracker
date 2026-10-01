@@ -127,9 +127,11 @@ Nachtrag ohne extra Befehl, z. B.:
   21. September 7 Uhr bis 1 Uhr 30
   21.9. 22 Uhr bis 6 Uhr   über Mitternacht, zählt zum Startdatum
 
-Bestehenden Tag korrigieren (Start und Pausen bleiben):
+Bestehenden Tag korrigieren (Pausen bleiben):
   21.09. edit 8            Stunden auf 8 setzen, Ende neu rechnen
   21.09. edit 8,5 Stunden
+  21.09. edit start 8:00   Startzeit setzen, Stunden neu rechnen
+                           auch: 21.09. edit s 8 Uhr
   21.09. edit 17:30        Endzeit setzen, Stunden neu rechnen
   21. September edit 17 Uhr 30
   21.09. edit pause 45     letzte Pause auf 45 Min. setzen

@@ -816,9 +816,15 @@ class Tracker:
             return str(exc)
         if entry is None:
             return None
-        return self.apply_edit(entry)
+        return self.apply_edit(entry, now=now)
 
-    def apply_edit(self, entry: EditEntry) -> str:
+    def apply_edit(self, entry: EditEntry, now: datetime | None = None) -> str:
+        now = now or datetime.now()
+        if entry.start is not None:
+            return self.apply_clock_adjust(
+                ClockAdjustEntry(field="start", clock=entry.start, day=entry.day),
+                now=now,
+            )
         day_key = entry.day.isoformat()
         from_current = (
             self.state.current is not None and self.state.current.date == day_key

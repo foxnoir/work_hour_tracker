@@ -23,6 +23,7 @@ class ManualEntry:
 class EditEntry:
     day: date
     hours: float | None = None
+    start: time | None = None
     end: time | None = None
     pause_minutes: int | None = None
     pause_end: time | None = None

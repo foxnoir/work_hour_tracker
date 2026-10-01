@@ -256,6 +256,17 @@ def parse_edit_entry(raw: str, today: date) -> EditEntry | None:
             "21.09. edit 8 oder 21.09. edit 17:30."
         )
     payload = match.group(1).strip()
+    if re.match(r"^(?:start|st\.?|s)\b", payload, re.IGNORECASE):
+        start_match = re.match(
+            r"^(?:start|st\.?|s)\s+(?:um\s+)?(.+)$",
+            payload,
+            re.IGNORECASE,
+        )
+        if start_match is None:
+            raise ParseError(
+                "Bitte Startzeit angeben, z. B. 21.09. edit start 8:00."
+            )
+        return EditEntry(day=day, start=parse_clock(start_match.group(1)))
     pause_match = re.match(r"^pause\s+(.+)$", payload, re.IGNORECASE)
     if pause_match:
         inner = pause_match.group(1).strip()
